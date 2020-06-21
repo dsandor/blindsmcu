@@ -27,9 +27,9 @@
 #define STEPPER_STEP_PIN          D7
 #define STEPPER_SLEEP_PIN         D5
 
-#define STEPPER2_DIR_PIN           D0
-#define STEPPER2_STEP_PIN          D1
-#define STEPPER2_SLEEP_PIN         D2
+#define STEPPER2_DIR_PIN           D1
+#define STEPPER2_STEP_PIN          D2
+#define STEPPER2_SLEEP_PIN         D0
 
 #define STEPPER_MICROSTEP_1_PIN   14
 #define STEPPER_MICROSTEP_2_PIN   12
