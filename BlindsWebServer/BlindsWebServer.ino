@@ -34,27 +34,8 @@
 #define STEPPER_MICROSTEP_1_PIN   14
 #define STEPPER_MICROSTEP_2_PIN   12
  
-/*****************  END USER CONFIG SECTION *********************************/
-/*****************  END USER CONFIG SECTION *********************************/
-/*****************  END USER CONFIG SECTION *********************************/
-/*****************  END USER CONFIG SECTION *********************************/
-/*****************  END USER CONFIG SECTION *********************************/
-
-/** \/ Web Server Config Section */
-
 // Set web server port number to 80
 ESP8266WebServer server(80);
-
-// Variable to store the HTTP request
-String header;
-
-// Auxiliar variables to store the current output state
-String output5State = "open";
-String output4State = "open";
-
-// Assign output variables to GPIO pins
-const int output5 = 5;
-const int output4 = 4;
 
 // Current time
 unsigned long currentTime = millis();
@@ -62,24 +43,19 @@ unsigned long currentTime = millis();
 unsigned long previousTime = 0; 
 // Define timeout time in milliseconds (example: 2000ms = 2s)
 const long timeoutTime = 2000;
-/** /\ Web Server Config Section */
-
 
 SimpleTimer timer;
-AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN ,STEPPER_STEP_PIN,STEPPER_MICROSTEP_1_PIN,STEPPER_MICROSTEP_2_PIN,STEPPER_SLEEP_PIN);
-AH_EasyDriver shadeStepper2(STEPPER_STEPS_PER_REV, STEPPER2_DIR_PIN ,STEPPER2_STEP_PIN,STEPPER_MICROSTEP_1_PIN,STEPPER_MICROSTEP_2_PIN,STEPPER2_SLEEP_PIN);
+AH_EasyDriver stepper1(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN ,STEPPER_STEP_PIN,STEPPER_MICROSTEP_1_PIN,STEPPER_MICROSTEP_2_PIN,STEPPER_SLEEP_PIN);
+AH_EasyDriver stepper2(STEPPER_STEPS_PER_REV, STEPPER2_DIR_PIN ,STEPPER2_STEP_PIN,STEPPER_MICROSTEP_1_PIN,STEPPER_MICROSTEP_2_PIN,STEPPER2_SLEEP_PIN);
+
+AH_EasyDriver steppers[2] = { stepper1, stepper2 };
+
 
 //Global Variables (I did some copy pasting for the second stepper.. DRY this code.)
 bool boot = true;
-int currentPosition = 0;
-int newPosition = 0;
-
-int currentPosition2 = 0;
-int newPosition2 = 0;
-
-char positionPublish[50];
-bool moving = false;
-bool moving2 = false;
+int currentPosition [] = { 0, 0 };
+int newPosition [] = { 0, 0 };
+bool moving [] = { false, false };
 
 char deviceName[20];
 
@@ -111,20 +87,20 @@ void setup_wifi() {
 //Run once setup
 void setup() {
   Serial.begin(115200);
-  shadeStepper.setMicrostepping(STEPPER_MICROSTEPPING);            // 0 -> Full Step                                
-  shadeStepper.setSpeedRPM(STEPPER_SPEED);     // set speed in RPM, rotations per minute
+  steppers[0].setMicrostepping(STEPPER_MICROSTEPPING);            // 0 -> Full Step                                
+  steppers[0].setSpeedRPM(STEPPER_SPEED);     // set speed in RPM, rotations per minute
 
-  shadeStepper2.setMicrostepping(STEPPER_MICROSTEPPING);            // 0 -> Full Step                                
-  shadeStepper2.setSpeedRPM(STEPPER_SPEED);     // set speed in RPM, rotations per minute
+  steppers[1].setMicrostepping(STEPPER_MICROSTEPPING);            // 0 -> Full Step                                
+  steppers[1].setSpeedRPM(STEPPER_SPEED);     // set speed in RPM, rotations per minute
   
   #if DRIVER_INVERTED_SLEEP == 1
-  shadeStepper.sleepOFF();
-  shadeStepper2.sleepOFF();
+  steppers[0].sleepOFF();
+  steppers[1].sleepOFF();
   #endif
 
   #if DRIVER_INVERTED_SLEEP == 0
-  shadeStepper.sleepON();
-  shadeStepper2.sleepON();
+  steppers[0].sleepON();
+  steppers[1].sleepON();
   #endif
 
   // use wifi manager instead of hard coding credentials.
@@ -160,8 +136,10 @@ void handleBlindsAction() { //Handler
     message += server.arg(i) + "\n";              //Get the value of the parameter
   } 
 
-  int pos = server.arg("position").toInt();  
-  newPosition = pos;
+  int pos = server.arg("position").toInt();
+  int blind_no = server.arg("blind").toInt();
+  
+  newPosition[blind_no] = pos;
   
   server.send(200, "text/plain", message);       //Response to the HTTP request
 }
@@ -172,89 +150,47 @@ void loop(){
 }
 
 void processSteppers() {
-  processStepper();
-  processStepper2();
+  processStepper(0);
+  processStepper(1);
 }
 
-void processStepper()
+void processStepper(int stepperNumber)
 {
-  if (newPosition > currentPosition)
+  if (newPosition[stepperNumber] > currentPosition[stepperNumber])
   {
     Serial.println("Moving stepper.. newPosition > currentPosition");
     #if DRIVER_INVERTED_SLEEP == 1
-    shadeStepper.sleepON();
+    steppers[stepperNumber].sleepON();
     #endif
     #if DRIVER_INVERTED_SLEEP == 0
-    shadeStepper.sleepOFF();
+    steppers[stepperNumber].sleepOFF();
     #endif
-    shadeStepper.move(80, FORWARD);
-    currentPosition++;
-    moving = true;
+    steppers[stepperNumber].move(80, FORWARD);
+    currentPosition[stepperNumber]++;
+    moving[stepperNumber] = true;
   }
-  if (newPosition < currentPosition)
+  if (newPosition[stepperNumber] < currentPosition[stepperNumber])
   {
     Serial.println("Moving stepper.. newPosition < currentPosition");
     #if DRIVER_INVERTED_SLEEP == 1
-    shadeStepper.sleepON();
+    steppers[stepperNumber].sleepON();
     #endif
     #if DRIVER_INVERTED_SLEEP == 0
-    shadeStepper.sleepOFF();
+    steppers[stepperNumber].sleepOFF();
     #endif
-    shadeStepper.move(80, BACKWARD);
-    currentPosition--;
-    moving = true;
+    steppers[stepperNumber].move(80, BACKWARD);
+    currentPosition[stepperNumber] --;
+    moving[stepperNumber] = true;
   }
-  if (newPosition == currentPosition && moving == true)
+  if (newPosition[stepperNumber] == currentPosition[stepperNumber] && moving[stepperNumber] == true)
   {
     Serial.println("Stopping stepper.");
     #if DRIVER_INVERTED_SLEEP == 1
-    shadeStepper.sleepOFF();
+    steppers[stepperNumber].sleepOFF();
     #endif
     #if DRIVER_INVERTED_SLEEP == 0
-    shadeStepper.sleepON();
+    steppers[stepperNumber].sleepON();
     #endif
-    moving = false;
-  }
-}
-
-void processStepper2()
-{
-  if (newPosition2 > currentPosition2)
-  {
-    Serial.println("Moving stepper 2.. newPosition2 > currentPosition2");
-    #if DRIVER_INVERTED_SLEEP == 1
-    shadeStepper2.sleepON();
-    #endif
-    #if DRIVER_INVERTED_SLEEP == 0
-    shadeStepper2.sleepOFF();
-    #endif
-    shadeStepper2.move(80, FORWARD);
-    currentPosition2++;
-    moving2 = true;
-  }
-  if (newPosition2 < currentPosition2)
-  {
-    Serial.println("Moving stepper 2.. newPosition2 < currentPosition2");
-    #if DRIVER_INVERTED_SLEEP == 1
-    shadeStepper2.sleepON();
-    #endif
-    #if DRIVER_INVERTED_SLEEP == 0
-    shadeStepper2.sleepOFF();
-    #endif
-    shadeStepper2.move(80, BACKWARD);
-    currentPosition2 --;
-    moving2 = true;
-  }
-  if (newPosition2 == currentPosition2 && moving2 == true)
-  {
-    Serial.println("Stopping stepper 2.");
-    #if DRIVER_INVERTED_SLEEP == 1
-    shadeStepper2.sleepOFF();
-    #endif
-    #if DRIVER_INVERTED_SLEEP == 0
-    shadeStepper2.sleepON();
-    #endif
-
-    moving2 = false;
+    moving[stepperNumber] = false;
   }
 }
