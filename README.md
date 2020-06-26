@@ -29,3 +29,8 @@ https://tzapu.com/esp8266-wifi-connection-manager-library-arduino-ide/
 https://techtutorialsx.com/2016/10/22/esp8266-webserver-getting-query-parameters/
 
 
+**Amazon Alexa Support**
+
+https://bitbucket.org/xoseperez/fauxmoesp/src/master/examples/fauxmoESP_External_Server/fauxmoESP_External_Server.ino
+
+Use the FaumoESP code with external web server support.  

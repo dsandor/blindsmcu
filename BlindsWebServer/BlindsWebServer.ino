@@ -1,3 +1,10 @@
+#define DEBUG_FAUXMO Serial
+#define DEBUG_FAUXMO_VERBOSE_TCP 1
+#define DEBUG_FAUXMO_VERBOSE_UDP 1
+
+#include <fauxmoESP.h>
+#include <templates.h>
+
 #include "SimpleTimer.h"    //https://github.com/marcelloromani/Arduino-SimpleTimer/tree/master/SimpleTimer
 #include <ESP8266WiFi.h>    //if you get an error here you need to install the ESP8266 board manager 
 #include <ESP8266mDNS.h>    //if you get an error here you need to install the ESP8266 board manager 
@@ -5,8 +12,10 @@
 #include <ArduinoOTA.h>     //https://github.com/esp8266/Arduino/tree/master/libraries/ArduinoOTA
 #include <AH_EasyDriver.h>  //http://www.alhin.de/arduino/downloads/AH_EasyDriver_20120512.zip
 #include <DNSServer.h>            //Local DNS Server used for redirecting all requests to the configuration portal
-#include <ESP8266WebServer.h>     //Local WebServer used to serve the configuration portal
-#include <WiFiManager.h>          //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <ESPAsyncWebServer.h>    //Local WebServer used to serve the configuration portal
+#include <ESPAsyncWiFiManager.h>  //https://github.com/tzapu/WiFiManager WiFi Configuration Magic
+#include <AsyncJson.h>
+#include <ArduinoJson.h>
 
 // Web Server Notes: https://techtutorialsx.com/2016/10/22/esp8266-webserver-getting-query-parameters/
 // Wifi Connection Manager: https://tzapu.com/esp8266-wifi-connection-manager-library-arduino-ide/
@@ -35,7 +44,9 @@
 #define STEPPER_MICROSTEP_2_PIN   12
  
 // Set web server port number to 80
-ESP8266WebServer server(80);
+AsyncWebServer server(80);
+fauxmoESP fauxmo;
+DNSServer dns;
 
 // Current time
 unsigned long currentTime = millis();
@@ -59,6 +70,20 @@ bool moving [] = { false, false };
 
 char deviceName[20];
 
+std::vector<std::string> split(std::string str, std::string sep)
+{
+  char *cstr = const_cast<char *>(str.c_str());
+  char *current;
+  std::vector<std::string> arr;
+  current = strtok(cstr, sep.c_str());
+  while (current != NULL)
+  {
+    arr.push_back(current);
+    current = strtok(NULL, sep.c_str());
+  }
+  return arr;
+}
+
 //Functions
 void setup_wifi() {
   // We start by connecting to a WiFi network
@@ -80,7 +105,217 @@ void setup_wifi() {
   Serial.println(WiFi.localIP());
 
   // After WIFI is setup we configure the WebServer.
-  server.on("/binds", handleBlindsAction);
+  server.on("/binds", HTTP_GET, [](AsyncWebServerRequest *request) { //Handler
+    String message = "Number of args received:";
+    message += request->args(); //Get number of parameters
+    message += "\n";          //Add a new line
+
+    //List all parameters (Compatibility)
+    int args = request->args();
+    for (int i = 0; i < args; i++)
+    {
+      Serial.printf("ARG[%s]: %s\n", request->argName(i).c_str(), request->arg(i).c_str());
+    }
+
+    int pos = request->arg("position").toInt();
+    int blind_no = request->arg("blind").toInt();
+
+    newPosition[blind_no] = pos;
+
+    request->send(200, "text/plain", message); //Response to the HTTP request
+  });
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) { //Handler
+    String message = "root called:";
+    message += request->url(); //Get number of parameters
+    message += "\n";            //Add a new line
+
+    Serial.println(message);
+    request->send(200, "text/plain", message); //Response to the HTTP request
+  });
+
+  server.on("/description.xml", HTTP_GET, [](AsyncWebServerRequest *request) {
+    Serial.println("caught description.xml request.");
+
+    String message = fauxmo.getDescriptionXml();
+
+    Serial.println(message);
+
+    request->send(200, "text/xml", message);
+  });
+
+  server.on("/api", HTTP_POST, [](AsyncWebServerRequest *request) {
+    String message = "[{\"success\":{\"username\":\"c6260f982b43a226b5542b967f612ce\"}}]\n\n";
+
+    Serial.println("POST /api");
+    Serial.print("URL: ");
+    Serial.println(request->url());
+
+    AsyncClient *client = request->client();
+    String ip = client->remoteIP().toString();
+
+    Serial.print("Remote IP: ");
+    Serial.println(ip);
+
+    //List all parameters (Compatibility)
+    int args = request->args();
+    for (int i = 0; i < args; i++)
+    {
+      Serial.printf("ARG[%s]: %s\n", request->argName(i).c_str(), request->arg(i).c_str());
+    }
+
+    //List all collected headers
+    int headers = request->headers();
+    int i;
+    for (i = 0; i < headers; i++)
+    {
+      AsyncWebHeader *h = request->getHeader(i);
+      Serial.printf("HEADER[%s]: %s\n", h->name().c_str(), h->value().c_str());
+    }
+
+    Serial.println(message);
+
+    request->send(200, "application/json", message);
+  });
+
+  AsyncCallbackJsonWebHandler *handler = new AsyncCallbackJsonWebHandler("/api", [](AsyncWebServerRequest *request, JsonVariant &json) {
+    Serial.println("json callback called..");
+    const JsonObject &jsonObj = json.as<JsonObject>();
+    String url = request->url();
+    Serial.print("url: ");
+    Serial.println(url);
+
+    std::vector<std::string> urlParts;
+
+    urlParts = split(url.c_str(), "/");
+
+    Serial.printf("Url parts size: %d ", urlParts.size());
+    Serial.printf("Url position 3: %s\n", urlParts[3].c_str());
+
+    if (urlParts.size() < 5)
+      return;
+
+    Serial.println("converting id.");
+    Serial.println(urlParts[3].c_str());
+
+    // Get the id
+    int id = String(urlParts[3].c_str()).toInt();
+
+    Serial.printf("Converted to: %d", id);
+    Serial.printf("%s called.. got json. device id: %d\n", url.c_str(), id);
+
+    String jsonString;
+    serializeJsonPretty(jsonObj, jsonString);
+
+    Serial.println(jsonString);
+
+    // if (jsonObj.containsKey("on"))
+    // {
+    //   if (jsonObj["on"])
+    //   {
+    //     newPosition[id - 1] = 12;
+    //   }
+    //   else
+    //   {
+    //     newPosition[id - 1] = 0;
+    //   }
+    // }
+
+    String response = fauxmo.getStateResponse(id - 1, jsonObj["on"]);
+    Serial.println("State Response:");
+    Serial.println(response);
+
+    request->send(200, "application/json", response);
+  });
+
+  server.addHandler(handler);
+
+  server.on("/api/c6260f982b43a226b5542b967f612ce/lights", [](AsyncWebServerRequest *request) {
+    String url = request->url();
+
+    Serial.printf("List request. (%s)\n", request->methodToString());
+    Serial.print("URL: ");
+    Serial.println(url);
+    AsyncClient *client = request->client();
+    String ip = client->remoteIP().toString();
+
+    // fauxmo.process(client, request->method() == HTTP_GET, url)
+    
+    Serial.print("Remote IP: ");
+    Serial.println(ip);
+
+    // Get the index
+    int pos = url.indexOf("lights");
+    if (-1 == pos)
+      return;
+
+    // Get the id
+    unsigned char id = url.substring(pos + 7).toInt();
+
+    Serial.printf("Parsed device id: %d", id);
+
+    if (id > 0) {
+      Serial.println("Get specific device info called.");
+      request->send(200, "application/json", fauxmo.getDevice(id - 1));
+      return;
+    }
+
+    String deviceListJson = fauxmo.getDeviceList();
+
+    Serial.print("Device list: ");
+    Serial.println(deviceListJson);
+
+    request->send(200, "application/json", deviceListJson);
+  });
+
+  // TODO: Alexa is looking for specific device state with ../lights/1 and /2. Need to return the proper result for these
+
+
+  server.onNotFound([](AsyncWebServerRequest *request) {
+    Serial.println("onNotFound::::::::::");
+    Serial.print("URL: ");
+    Serial.println(request->url());
+
+    AsyncClient *client = request->client();
+    String ip = client->remoteIP().toString();
+
+    Serial.print("Remote IP: ");
+    Serial.println(ip);
+
+    //List all parameters (Compatibility)
+    int args = request->args();
+    for (int i = 0; i < args; i++)
+    {
+      Serial.printf("ARG[%s]: %s\n", request->argName(i).c_str(), request->arg(i).c_str());
+    }
+
+    //List all collected headers
+    int headers = request->headers();
+    int i;
+    for (i = 0; i < headers; i++)
+    {
+      AsyncWebHeader *h = request->getHeader(i);
+      Serial.printf("HEADER[%s]: %s\n", h->name().c_str(), h->value().c_str());
+    }
+  });
+
+  server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    Serial.print("\nonRequestBody - URL:");
+    Serial.println(request->url());
+
+    Serial.print("\nonRequestBody - METHOD: ");
+    Serial.println(request->methodToString());
+
+    Serial.print("\nonRequestBody - Data: ");
+    Serial.println(String((char *)data));
+
+    // + ", data: " + String((char *)data));
+
+    if (fauxmo.process(request->client(), request->method() == HTTP_GET || HTTP_POST, request->url(), String((char *)data)))
+      return;
+    // Handle any other body request here...
+  });
+
   server.begin();
 }
 
@@ -92,8 +327,8 @@ void setup() {
 
   steppers[1].setMicrostepping(STEPPER_MICROSTEPPING);            // 0 -> Full Step                                
   steppers[1].setSpeedRPM(STEPPER_SPEED);     // set speed in RPM, rotations per minute
-  
-  #if DRIVER_INVERTED_SLEEP == 1
+
+#if DRIVER_INVERTED_SLEEP == 1
   steppers[0].sleepOFF();
   steppers[1].sleepOFF();
   #endif
@@ -104,7 +339,7 @@ void setup() {
   #endif
 
   // use wifi manager instead of hard coding credentials.
-  WiFiManager wifiManager;
+  AsyncWiFiManager wifiManager(&server, &dns);
 
   sprintf(deviceName, "BLINDS_%08X", ESP.getChipId());
   
@@ -118,13 +353,37 @@ void setup() {
   WiFi.mode(WIFI_STA);
   setup_wifi();
   
+  // Setup Fauxmo for alexa support
+  fauxmo.createServer(false);
+  fauxmo.setPort(80); // This is required for gen3 devices
+  fauxmo.enable(true);
+  fauxmo.addDevice("blinds left");
+  fauxmo.addDevice("blinds right");
+
   delay(10);
   Serial.print("interval: ");
   Serial.println(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED);
-  timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processSteppers);   
+  timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processSteppers);
+
+  fauxmo.onSetState([](unsigned char device_id, const char *device_name, bool state, unsigned char value) {
+    // Callback when a command from Alexa is received.
+    // You can use device_id or device_name to choose the element to perform an action onto (relay, LED,...)
+    // State is a boolean (ON/OFF) and value a number from 0 to 255 (if you say "set kitchen light to 50%" you will receive a 128 here).
+    // Just remember not to delay too much here, this is a callback, exit as soon as possible.
+    // If you have to do something more involved here set a flag and process it in your main loop.
+
+    // if (0 == device_id) digitalWrite(RELAY1_PIN, state);
+    // if (1 == device_id) digitalWrite(RELAY2_PIN, state);
+    // if (2 == device_id) analogWrite(LED1_PIN, value);
+
+    Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+
+    // For the example we are turning the same LED on and off regardless fo the device triggered or the value
+    // digitalWrite(LED, !state); // we are nor-ing the state because our LED has inverse logic.
+  });
 }
 
-void handleBlindsAction() { //Handler
+/*void handleBlindsAction() { //Handler
   String message = "Number of args received:";
   message += server.args();            //Get number of parameters
   message += "\n";                            //Add a new line
@@ -142,11 +401,11 @@ void handleBlindsAction() { //Handler
   newPosition[blind_no] = pos;
   
   server.send(200, "text/plain", message);       //Response to the HTTP request
-}
+}*/
 
 void loop(){
   timer.run();
-  server.handleClient();
+  fauxmo.handle();
 }
 
 void processSteppers() {
@@ -156,8 +415,15 @@ void processSteppers() {
 
 void processStepper(int stepperNumber)
 {
+  // Serial.print("Stepper: ");
+  // Serial.print(stepperNumber);
+  // Serial.print("\ncurrentPosition: ");
+  // Serial.print(currentPosition[stepperNumber]);
+  // Serial.print("\nnewPosition: ");
+  // Serial.println(newPosition[stepperNumber]);
+  
   if (newPosition[stepperNumber] > currentPosition[stepperNumber])
-  {
+  {    
     Serial.println("Moving stepper.. newPosition > currentPosition");
     #if DRIVER_INVERTED_SLEEP == 1
     steppers[stepperNumber].sleepON();
@@ -171,7 +437,7 @@ void processStepper(int stepperNumber)
   }
   if (newPosition[stepperNumber] < currentPosition[stepperNumber])
   {
-    Serial.println("Moving stepper.. newPosition < currentPosition");
+    Serial.println("Moving stepper.. newPosition  < currentPosition");
     #if DRIVER_INVERTED_SLEEP == 1
     steppers[stepperNumber].sleepON();
     #endif
