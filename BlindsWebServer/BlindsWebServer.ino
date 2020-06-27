@@ -61,6 +61,9 @@ AH_EasyDriver stepper2(STEPPER_STEPS_PER_REV, STEPPER2_DIR_PIN ,STEPPER2_STEP_PI
 
 AH_EasyDriver steppers[2] = { stepper1, stepper2 };
 
+const String webui =
+    String(
+        "<!DOCTYPE html><html><head><link rel=\"stylesheet\" href=\"https://unpkg.com/@blaze/css@9.2.0/dist/blaze/blaze.css\"> <script type=\"module\" src=\"https://unpkg.com/@blaze/atoms@9.2.0/dist/blaze-atoms/blaze-atoms.esm.js\"></script> <script nomodule=\"\" src=\"https://unpkg.com/@blaze/atoms@9.2.0/dist/blaze-atoms/blaze-atoms.js\"></script> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui\"></head><title>Blinds Controller</title><body><div class=\"c-card u-text\"> <header class=\"c-card__header\"><h2 class=\"c-heading\"> Blinds Left<div class=\"c-heading__sub\">Current Position: 0</div></h2> </header><div class=\"c-card__body\"></div> <footer class=\"c-card__footer\"><div class=\"c-input-group\"> <a href=\"/blinds?blind=0&position=0\" style=\"margin: 10px;\"><blaze-badge ghost rounded>Close</blaze-badge></a> <a href=\"/blinds?blind=0&position=12\" style=\"margin: 10px;\"><blaze-badge ghost rounded>Open</blaze-badge></a></div> </footer></div><div class=\"c-card u-text\"> <header class=\"c-card__header\"><h2 class=\"c-heading\"> Blinds Right<div class=\"c-heading__sub\">Current Position: 0</div></h2> </header><div class=\"c-card__body\"></div> <footer class=\"c-card__footer\"><div class=\"c-input-group\"> <a href=\"/blinds?blind=1&position=0\" style=\"margin: 10px;\"> <blaze-badge ghost rounded>Close</blaze-badge> </a> <a href=\"/blinds?blind=1&position=12\" style=\"margin: 10px;\"> <blaze-badge ghost rounded>Open</blaze-badge> </a></div> </footer></div> <script>const closedValue=0,openValue=12;function close(blindId){} function open(blind_id){}</script> </body></html>");
 
 //Global Variables (I did some copy pasting for the second stepper.. DRY this code.)
 bool boot = true;
@@ -131,7 +134,7 @@ void setup_wifi() {
     message += "\n";            //Add a new line
 
     Serial.println(message);
-    request->send(200, "text/plain", message); //Response to the HTTP request
+    request->send(200, "text/html", webui); //Response to the HTTP request
   });
 
   server.on("/description.xml", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -226,14 +229,21 @@ void setup_wifi() {
       return;
     // Handle any other body request here...
   });
+
   server.onNotFound([](AsyncWebServerRequest *request) {
-    String body = (request->hasParam("body", true)) ? request->getParam("body", true)->value() : String();
+    Serial.println("Not found called.");
+
+    if (request->url() == "/blinds") {
+      processBlindsApi(request);
+    }
+
+      String body = (request->hasParam("body", true)) ? request->getParam("body", true)->value() : String();
     if (fauxmo.process(request->client(), request->method() == HTTP_GET, request->url(), body))
       return;
     // Handle not found request here...
   });
 
-/*
+  /*
   server.on("/api/c6260f982b43a226b5542b967f612ce/lights", [](AsyncWebServerRequest *request) {
     String url = request->url();
 
@@ -326,6 +336,29 @@ void setup_wifi() {
   server.begin();
 }
 
+void processBlindsApi(AsyncWebServerRequest *request)
+{
+  Serial.println("processBlindsApi called.");
+
+  String message = "Number of args received:";
+  message += request->args(); //Get number of parameters
+  message += "\n";            //Add a new line
+
+  //List all parameters (Compatibility)
+  int args = request->args();
+  for (int i = 0; i < args; i++)
+  {
+    Serial.printf("ARG[%s]: %s\n", request->argName(i).c_str(), request->arg(i).c_str());
+  }
+
+  int pos = request->arg("position").toInt();
+  int blind_no = request->arg("blind").toInt();
+
+  newPosition[blind_no] = pos;
+
+  request->redirect("/");
+}
+
 //Run once setup
 void setup() {
   Serial.begin(115200);
@@ -392,7 +425,7 @@ void setup() {
     if (value >= 16 && value <=128) {
       newPosition[device_id] = 6;
     }
-    
+
     if (value < 16) {
       newPosition[device_id] = 0;
     }
