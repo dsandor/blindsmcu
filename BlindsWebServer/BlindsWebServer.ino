@@ -209,18 +209,6 @@ void setup_wifi() {
 
     Serial.println(jsonString);
 
-    // if (jsonObj.containsKey("on"))
-    // {
-    //   if (jsonObj["on"])
-    //   {
-    //     newPosition[id - 1] = 12;
-    //   }
-    //   else
-    //   {
-    //     newPosition[id - 1] = 0;
-    //   }
-    // }
-
     String response = fauxmo.getStateResponse(id - 1, jsonObj["on"]);
     Serial.println("State Response:");
     Serial.println(response);
@@ -228,8 +216,24 @@ void setup_wifi() {
     request->send(200, "application/json", response);
   });
 
-  server.addHandler(handler);
+  // server.addHandler(handler);
 
+  // These two callbacks are required for gen1 and gen3 compatibility
+  server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    Serial.println("onRequestBody called.");
+
+    if (fauxmo.process(request->client(), request->method() == HTTP_GET, request->url(), String((char *)data)))
+      return;
+    // Handle any other body request here...
+  });
+  server.onNotFound([](AsyncWebServerRequest *request) {
+    String body = (request->hasParam("body", true)) ? request->getParam("body", true)->value() : String();
+    if (fauxmo.process(request->client(), request->method() == HTTP_GET, request->url(), body))
+      return;
+    // Handle not found request here...
+  });
+
+/*
   server.on("/api/c6260f982b43a226b5542b967f612ce/lights", [](AsyncWebServerRequest *request) {
     String url = request->url();
 
@@ -252,10 +256,13 @@ void setup_wifi() {
     // Get the id
     unsigned char id = url.substring(pos + 7).toInt();
 
-    Serial.printf("Parsed device id: %d", id);
+    Serial.printf("Parsed device id: %d\n", id);
 
-    if (id > 0) {
+    if (id > 0)
+    {
       Serial.println("Get specific device info called.");
+      Serial.println(fauxmo.getDevice(id - 1));
+
       request->send(200, "application/json", fauxmo.getDevice(id - 1));
       return;
     }
@@ -267,10 +274,10 @@ void setup_wifi() {
 
     request->send(200, "application/json", deviceListJson);
   });
-
+*/
   // TODO: Alexa is looking for specific device state with ../lights/1 and /2. Need to return the proper result for these
 
-
+/*
   server.onNotFound([](AsyncWebServerRequest *request) {
     Serial.println("onNotFound::::::::::");
     Serial.print("URL: ");
@@ -315,7 +322,7 @@ void setup_wifi() {
       return;
     // Handle any other body request here...
   });
-
+*/
   server.begin();
 }
 
@@ -378,6 +385,17 @@ void setup() {
 
     Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
 
+    if (value > 128) {
+      newPosition[device_id] = 12;
+    }
+
+    if (value >= 16 && value <=128) {
+      newPosition[device_id] = 6;
+    }
+    
+    if (value < 16) {
+      newPosition[device_id] = 0;
+    }
     // For the example we are turning the same LED on and off regardless fo the device triggered or the value
     // digitalWrite(LED, !state); // we are nor-ing the state because our LED has inverse logic.
   });
