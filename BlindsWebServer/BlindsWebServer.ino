@@ -20,11 +20,6 @@
 // Web Server Notes: https://techtutorialsx.com/2016/10/22/esp8266-webserver-getting-query-parameters/
 // Wifi Connection Manager: https://tzapu.com/esp8266-wifi-connection-manager-library-arduino-ide/
 
-/*****************  START USER CONFIG SECTION *********************************/
-/*****************  START USER CONFIG SECTION *********************************/
-/*****************  START USER CONFIG SECTION *********************************/
-/*****************  START USER CONFIG SECTION *********************************/
-
 #define STEPPER_SPEED             50                  //Defines the speed in RPM for your stepper motor
 #define STEPPER_STEPS_PER_REV     1028                //Defines the number of pulses that is required for the stepper to rotate 360 degrees
 #define STEPPER_MICROSTEPPING     0                   //Defines microstepping 0 = no microstepping, 1 = 1/2 stepping, 2 = 1/4 stepping 
@@ -406,53 +401,15 @@ void setup() {
   timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processSteppers);
 
   fauxmo.onSetState([](unsigned char device_id, const char *device_name, bool state, unsigned char value) {
-    // Callback when a command from Alexa is received.
-    // You can use device_id or device_name to choose the element to perform an action onto (relay, LED,...)
-    // State is a boolean (ON/OFF) and value a number from 0 to 255 (if you say "set kitchen light to 50%" you will receive a 128 here).
-    // Just remember not to delay too much here, this is a callback, exit as soon as possible.
-    // If you have to do something more involved here set a flag and process it in your main loop.
-
-    // if (0 == device_id) digitalWrite(RELAY1_PIN, state);
-    // if (1 == device_id) digitalWrite(RELAY2_PIN, state);
-    // if (2 == device_id) analogWrite(LED1_PIN, value);
-
     Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+    String strValue = String(value);
+    float alexa_value = atof(strValue.c_str());
+    double percent = alexa_value / 256.0f;
+    int computed = floor(STEPS_TO_CLOSE * percent);
 
-    if (value > 128) {
-      newPosition[device_id] = 12;
-    }
-
-    if (value >= 16 && value <=128) {
-      newPosition[device_id] = 6;
-    }
-
-    if (value < 16) {
-      newPosition[device_id] = 0;
-    }
-    // For the example we are turning the same LED on and off regardless fo the device triggered or the value
-    // digitalWrite(LED, !state); // we are nor-ing the state because our LED has inverse logic.
+    newPosition[device_id] = computed;
   });
 }
-
-/*void handleBlindsAction() { //Handler
-  String message = "Number of args received:";
-  message += server.args();            //Get number of parameters
-  message += "\n";                            //Add a new line
-
-  for (int i = 0; i < server.args(); i++) {
-
-    message += "Arg :" + (String)i + " -> ";   //Include the current iteration value
-    message += server.argName(i) + ": ";     //Get the name of the parameter
-    message += server.arg(i) + "\n";              //Get the value of the parameter
-  } 
-
-  int pos = server.arg("position").toInt();
-  int blind_no = server.arg("blind").toInt();
-  
-  newPosition[blind_no] = pos;
-  
-  server.send(200, "text/plain", message);       //Response to the HTTP request
-}*/
 
 void loop(){
   timer.run();
@@ -466,13 +423,6 @@ void processSteppers() {
 
 void processStepper(int stepperNumber)
 {
-  // Serial.print("Stepper: ");
-  // Serial.print(stepperNumber);
-  // Serial.print("\ncurrentPosition: ");
-  // Serial.print(currentPosition[stepperNumber]);
-  // Serial.print("\nnewPosition: ");
-  // Serial.println(newPosition[stepperNumber]);
-  
   if (newPosition[stepperNumber] > currentPosition[stepperNumber])
   {    
     Serial.println("Moving stepper.. newPosition > currentPosition");
