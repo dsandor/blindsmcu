@@ -12,53 +12,29 @@
 		<div class="c-card u-text">
 			<header class="c-card__header">
 				<h2 class="c-heading">
-					Blinds Left
-					<div class="c-heading__sub">Current Position: 0</div>
+					{{name}}
+					<div class="c-heading__sub">Current Position: {{current_position}}</div>
 				</h2>
 			</header>
 			<div class="c-card__body">
 			</div>
 			<footer class="c-card__footer">
+				<form action="/blinds" method="get">
+					<div class="c-input-group">
+						<input type="text" value="" name="position">&nbsp;
+						<input type="hidden" value="0" name="blind">
+						<input type="submit" value="Set Position">
+							<a href="/blinds?blind=0&position=1000&calibrate-closed=true" style="margin: 10px;">
+								<blaze-badge ghost rounded>Recalibrate Closed</blaze-badge>
+							</a>
+
+					</div>
+				</form>
 				<div class="c-input-group">
 							<a href="/blinds?blind=0&position=0" style="margin: 10px;"><blaze-badge ghost rounded>Close</blaze-badge></a>
-							<a href="/blinds?blind=0&position=12" style="margin: 10px;"><blaze-badge ghost rounded>Open</blaze-badge></a>
+							<a href="/blinds?blind=0&position=1000" style="margin: 10px;"><blaze-badge ghost rounded>Open</blaze-badge></a>
 				</div>
 			</footer>
 		</div>
-
-			<div class="c-card u-text">
-				<header class="c-card__header">
-					<h2 class="c-heading">
-						Blinds Right
-						<div class="c-heading__sub">Current Position: 0</div>
-					</h2>
-				</header>
-				<div class="c-card__body">
-				</div>
-				<footer class="c-card__footer">
-					<div class="c-input-group">
-							<a href="/blinds?blind=1&position=0" style="margin: 10px;">
-								<blaze-badge ghost rounded>Close</blaze-badge>
-							</a>
-							<a href="/blinds?blind=1&position=12" style="margin: 10px;">
-								<blaze-badge ghost rounded>Open</blaze-badge>
-							</a>
-					</div>
-				</footer>
-			</div>
-
-		<script>
-			const closedValue = 0, openValue = 12;
-
-			function close(blindId) {
-				/* window.location.href = '/blinds?blind=' + blindId + '&position=' + closedValue; */
-			}
-
-			function open(blind_id) {
-				/* window.location.href = '/blinds?blind=' + blindId + '&position=' + openValue; */
-			}
-		</script>
-
-
 	</body>
 </html>
